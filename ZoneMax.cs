@@ -338,6 +338,23 @@ namespace ZoneMax
         public N.RECT Rect;      // already clipped to that monitor's real work area
     }
 
+    internal static class Split
+    {
+        public const double MinFraction = 0.05;
+        public const double MaxFraction = 0.95;
+
+        public static bool TryParseFraction(string value, out double fraction)
+        {
+            return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out fraction)
+                && fraction >= MinFraction && fraction <= MaxFraction;
+        }
+
+        public static int LeftWidth(int totalWidth, double fraction)
+        {
+            return (int)Math.Round(totalWidth * fraction, MidpointRounding.AwayFromZero);
+        }
+    }
+
     internal class Config
     {
         public bool AutoFix = true;    // safety net: pull a stray maximize back into its zone
@@ -416,8 +433,11 @@ namespace ZoneMax
                     else if (key.Equals("splitfraction", StringComparison.OrdinalIgnoreCase))
                     {
                         double d;
-                        if (double.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out d) && d > 0.1 && d < 0.9)
+                        if (Split.TryParseFraction(val, out d))
                             c.SplitFraction = d;
+                        else
+                            App.Log("invalid splitfraction \"" + val + "\"; using "
+                                + c.SplitFraction.ToString("0.##", CultureInfo.InvariantCulture));
                     }
                 }
                 else if (section == "modes")
@@ -741,9 +761,8 @@ namespace ZoneMax
             }
             else
             {
-                int w = (int)Math.Round(work.Width * Cfg.SplitFraction);
-                if (w < 300) w = 300;
-                if (w > work.Width - 300) w = work.Width - 300;
+                // No pixel floor: narrow zones are intentional, and the 5% bound keeps this positive.
+                int w = Split.LeftWidth(work.Width, Cfg.SplitFraction);
                 list.Add(NewZone("Left", N.RECT.FromXYWH(work.Left, work.Top, w, work.Height), k));
                 list.Add(NewZone("Right", N.RECT.FromXYWH(work.Left + w, work.Top, work.Width - w, work.Height), k));
             }
@@ -1790,14 +1809,14 @@ namespace ZoneMax
         void RebuildSplitMenu()
         {
             miSplitRoot.DropDownItems.Clear();
-            double[] fracs = new double[] { 0.5, 0.4, 0.35, 0.6, 0.65 };
+            double[] fracs = new double[] { 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.4, 0.3, 0.2, 0.1, 0.05 };
             N.RECT pm = Engine.MonitorRect(Engine.Monitors()[0]);
             foreach (IntPtr h in Engine.Monitors()) if (Engine.IsPrimary(h)) pm = Engine.MonitorRect(h);
 
             for (int i = 0; i < fracs.Length; i++)
             {
                 double f = fracs[i];
-                int lw = (int)Math.Round(pm.Width * f);
+                int lw = Split.LeftWidth(pm.Width, f);
                 ToolStripMenuItem mi = new ToolStripMenuItem(
                     string.Format(CultureInfo.InvariantCulture, "{0} / {1}    ({2}px | {3}px)",
                         (int)(f * 100), 100 - (int)(f * 100), lw, pm.Width - lw));
